@@ -1,18 +1,16 @@
 package main
 
 import (
-	"fmt"
-	"log"
-	"net/http"
+	"github.com/kataras/iris"
 	"os"
 )
 
 func main() {
-	http.HandleFunc("/", func(w http.ResponseWriter, req *http.Request) {
-		fmt.Fprintln(w, "👏👏👏")
+	iris.Get("/", func(c *iris.Context) {
+		c.JSON(200, iris.Map{
+			"Hello": "👋",
+			"World": "🌎",
+		})
 	})
-	http.HandleFunc("/boobs", func(w http.ResponseWriter, req *http.Request) {
-		fmt.Fprintln(w, "( 🍥 Y 🍥 )")
-	})
-	log.Fatal(http.ListenAndServe(":"+os.Args[1], nil))
+	iris.Listen(":" + os.Args[1])
 }

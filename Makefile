@@ -1,10 +1,14 @@
 PORT := 7000
 
-all: help
+all: run
 
 help:
-	@echo - format: formats the whole source code
-	@echo - run: launches the web server listening on port ${PORT}
+	@echo - setup: download and install packages and dependencies
+	@echo - format: run code formatting on package sources
+	@echo - run (default): launches the web server listening on port ${PORT}
+
+setup:
+	go get -u github.com/kataras/iris/iris
 
 format:
 	gofmt -w **/*.go
