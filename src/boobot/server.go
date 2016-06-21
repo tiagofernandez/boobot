@@ -1,16 +1,14 @@
-package main
+package boobot
 
 import (
 	"github.com/kataras/iris"
-	"os"
 )
 
-func main() {
+func Start(port string) {
 	iris.Get("/", func(c *iris.Context) {
 		c.JSON(200, iris.Map{
-			"Hello": "👋",
-			"World": "🌎",
+			"Message": HelloWorld(),
 		})
 	})
-	iris.Listen(":" + os.Args[1])
+	iris.Listen(":" + port)
 }

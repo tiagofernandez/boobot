@@ -1,3 +1,4 @@
+APP_NAME := boobot
 PORT := 7000
 
 all: run
@@ -13,6 +14,9 @@ setup:
 format:
 	gofmt -w **/*.go
 
+test:
+	go test ./...
+
 run: format
-	go build -o bin/boobot src/boobot.go
-	./bin/boobot ${PORT}
+	go build -o bin/${APP_NAME} src/main.go
+	./bin/${APP_NAME} ${PORT}
