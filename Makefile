@@ -14,4 +14,4 @@ test: format
 
 run: format
 	gb build
-	./bin/run 7000
+	./bin/boobot 7000
