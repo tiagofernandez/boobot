@@ -1,22 +1,17 @@
-APP_NAME := boobot
-PORT := 7000
-
 all: run
 
-help:
-	@echo - setup: download and install packages and dependencies
-	@echo - format: run code formatting on package sources
-	@echo - run (default): launches the web server listening on port ${PORT}
+install:
+	go get github.com/constabulary/gb/...
 
-setup:
-	go get -u github.com/kataras/iris/iris
+update:
+	gb vendor update --all
 
 format:
-	gofmt -w **/*.go
+	gofmt -s -w src
 
-test:
-	go test ./...
+test: format
+	gb test
 
 run: format
-	go build -o bin/${APP_NAME} src/main.go
-	./bin/${APP_NAME} ${PORT}
+	gb build
+	./bin/run 7000

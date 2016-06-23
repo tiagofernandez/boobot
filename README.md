@@ -8,7 +8,7 @@ Boobs-powered robot enslaved by online pirates, trapped in a random group chat!
 - Bewbs!
 - Jugs!
 - brlbrlbrlbrl!!!
-- ( o Y o )
+- ( 🤖 Y 🤖 )
 
 ## Setup
 
@@ -17,3 +17,10 @@ Boobs-powered robot enslaved by online pirates, trapped in a random group chat!
 
 	# Install the latest [Go](https://golang.org/dl/) distribution
 	brew install go --cross-compile-common
+
+	# Set the GOPATH variable, e.g. config.fish:
+	set -gx GOPATH $HOME/.go
+	set -gx PATH $GOPATH/bin $PATH
+
+	# Download and install packages and dependencies
+	make install
