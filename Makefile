@@ -10,7 +10,7 @@ format:
 	gofmt -s -w src
 
 test: format
-	gb test
+	gb test -v
 
 run: format
 	gb build
