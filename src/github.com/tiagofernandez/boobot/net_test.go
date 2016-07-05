@@ -16,17 +16,14 @@ type RandomJoke struct {
 }
 
 func TestHttpGet(t *testing.T) {
-	HttpGet("http://api.icndb.com/jokes/random", func(body io.ReadCloser) bool {
+	HttpGet("http://api.icndb.com/jokes/random", func(body io.ReadCloser) {
 		var data RandomJoke
 		err := json.NewDecoder(body).Decode(&data)
-
 		if err != nil {
 			t.Error("Test failed")
-			return false
 		} else {
 			b, _ := json.Marshal(data)
 			t.Log(string(b))
-			return true
 		}
 	})
 }

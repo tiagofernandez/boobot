@@ -2,14 +2,16 @@ package boobot
 
 import (
 	"io"
+	"log"
 	"net/http"
 )
 
-func HttpGet(url string, f func(io.ReadCloser) bool) (bool, error) {
+func HttpGet(url string, f func(io.ReadCloser)) {
 	r, err := http.Get(url)
-	if err != nil {
-		return false, err
+	if err == nil {
+		defer r.Body.Close()
+		f(r.Body)
+	} else {
+		log.Println(err)
 	}
-	defer r.Body.Close()
-	return f(r.Body), err
 }
