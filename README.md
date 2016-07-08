@@ -24,3 +24,18 @@ Boobs-powered robot enslaved by online pirates, trapped in a random group chat!
 
 	# Download and install packages and dependencies
 	make install
+
+## Platforms
+
+### Raspberry Pi
+
+	# Configuration
+	ssh pi@192.168.1.xx
+	sudo raspi-config
+
+	# Install Docker
+	curl -s https://packagecloud.io/install/repositories/Hypriot/Schatzkiste/script.deb.sh | sudo bash
+	apt-get install docker-hypriot
+
+	# Shutdown
+	sudo shutdown -h now
