@@ -16,6 +16,6 @@ func Start(port string) {
 			"URL": GimmeSomeBoobs(),
 		})
 	})
-	iris.Listen(":" + port)
+	iris.Listen("0.0.0.0:" + port)
 	log.Println("Boobot is online ( o Y o )")
 }

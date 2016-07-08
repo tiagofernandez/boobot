@@ -1,29 +1,32 @@
 # Boobot
 
-Boobs-powered robot enslaved by online pirates, trapped in a random group chat!
+Boobs-powered robot enslaved by online pirates, programmed to serve in random group chats. ( 🤖 Y 🤖 )
 
-## Why?
-
-- Because BOOBS!
-- Bewbs!
-- Jugs!
-- brlbrlbrlbrl!!!
-- ( 🤖 Y 🤖 )
 
 ## Setup
 
-	# Install [Homebrew](http://brew.sh/)
+### Mac OS
+
+	# Install Homebrew
 	/usr/bin/ruby -e "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/master/install)"
 
-	# Install the latest [Go](https://golang.org/dl/) distribution
+	# Install the latest Go distribution
 	brew install go --cross-compile-common
 
-	# Set the GOPATH variable, e.g. config.fish:
+	# Set the GOPATH variable in your profile, e.g. config.fish:
 	set -gx GOPATH $HOME/.go
 	set -gx PATH $GOPATH/bin $PATH
 
 	# Download and install packages and dependencies
 	make install
+
+### Docker
+
+Install [Docker for Mac](https://docs.docker.com/docker-for-mac/).
+
+	make image
+	make run-dev
+
 
 ## Platforms
 
