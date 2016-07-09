@@ -2,7 +2,7 @@ NAME = boobot
 TAG = latest
 PORT = 6970
 
-all: run
+all: dev
 
 clean:
 	rm -rf bin
@@ -27,8 +27,10 @@ format:
 test: build format
 	gb test -v
 
-run: format build
+run:
 	./bin/$(NAME) $(PORT)
+
+dev: format build run
 
 docker-clean:
 	docker ps -a -f status=exited -q | xargs docker rm -f

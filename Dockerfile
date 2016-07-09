@@ -4,4 +4,4 @@ ADD . /code
 WORKDIR /code
 
 RUN make build-all
-CMD ["make"]
+CMD ["make", "run"]

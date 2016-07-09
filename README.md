@@ -17,8 +17,8 @@ Boobs-powered robot enslaved by online pirates, programmed to serve in random gr
 	set -gx GOPATH $HOME/.go
 	set -gx PATH $GOPATH/bin $PATH
 
-	# Download packages, build and run!
-	make
+	# Start having fun!
+	make dev
 
 ### Docker
 
