@@ -5,7 +5,10 @@ PORT = 6970
 all: run
 
 clean:
-	rm -f ./bin/$(NAME)
+	rm -rf bin
+
+clean-all: clean
+	rm -rf pkg
 
 install:
 	go get github.com/constabulary/gb/...
@@ -15,6 +18,8 @@ update: install
 
 build: install clean
 	gb build
+
+build-all: clean-all build
 
 format:
 	gofmt -s -w src
@@ -33,7 +38,7 @@ docker-image:
 	docker build -t $(NAME):$(TAG) .
 
 docker-shell:
-	docker run -v $(shell pwd):/code -p $(PORT):$(PORT) -ti $(NAME):$(TAG) /bin/bash
+	docker run -v $(shell pwd)/src:/code/src -p $(PORT):$(PORT) -ti $(NAME):$(TAG) /bin/bash
 
 docker-run:
 	docker run -p $(PORT):$(PORT) -d $(NAME):$(TAG)
