@@ -17,15 +17,15 @@ Boobs-powered robot enslaved by online pirates, programmed to serve in random gr
 	set -gx GOPATH $HOME/.go
 	set -gx PATH $GOPATH/bin $PATH
 
-	# Download and install packages and dependencies
-	make install
+	# Download packages, build and run!
+	make
 
 ### Docker
 
 Install [Docker for Mac](https://docs.docker.com/docker-for-mac/).
 
-	make image
-	make run-dev
+	make docker-image
+	make docker-run
 
 
 ## Platforms
