@@ -46,10 +46,18 @@ dev: format build run
 docker-clean:
 	docker ps -a -f status=exited -q | xargs docker rm -f
 	docker images | grep '^<none>' | awk '{print $3}' | xargs docker rmi -f
+	rm -f /tmp/$(NAME).tar
 
 # Build this project's image
 docker-image:
 	docker build -t $(NAME):$(TAG) .
+
+# Save image to a temporary file
+docker-save:
+ifeq (, $(shell docker images -q $(NAME):$(TAG)))
+	$(MAKE) docker-image
+endif
+	test -f /tmp/$(NAME).tar || docker save -o /tmp/$(NAME).tar $(NAME):$(TAG)
 
 # Launch a container within the host's source code, and run a shell
 docker-shell:
@@ -62,3 +70,7 @@ docker-run:
 # Debug the running container
 docker-debug:
 	docker exec -ti $(shell docker ps | grep $(NAME):$(TAG) | awk '{print $$1}') /bin/bash
+
+# Deploy to production
+deploy: docker-save
+	ansible-playbook -i playbooks/hosts playbooks/deploy.yml

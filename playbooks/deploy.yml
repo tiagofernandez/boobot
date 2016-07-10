@@ -1,0 +1,19 @@
+---
+- name: deploy to production
+  hosts: raspberry-pi
+  remote_user: pi
+  sudo: true
+  vars:
+    app_name: boobot
+    image_file: /tmp/{{app_name}}.tar
+    port: 6970
+  tasks:
+  - name: copy image to host
+    copy: src={{image_file}} dest=/tmp
+  - name: load image file
+    shell: docker load --input {{image_file}}
+  - name: stop running container
+    shell: docker ps | grep '{{app_name}}' | awk '{print $1}' | xargs docker rm -f
+    ignore_errors: true
+  - name: start new container
+    shell: docker run -p {{port}}:{{port}} -d {{app_name}}:latest
