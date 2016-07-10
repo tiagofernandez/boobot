@@ -13,7 +13,8 @@
   - name: load image file
     shell: docker load --input {{image_file}}
   - name: stop running container
-    shell: docker ps | grep '{{app_name}}' | awk '{print $1}' | xargs docker rm -f
-    ignore_errors: true
+    shell: docker ps | grep '{{app_name}}' | awk '{print $1}' | xargs --no-run-if-empty docker rm -f
   - name: start new container
     shell: docker run -p {{port}}:{{port}} -d {{app_name}}:latest
+  - name: remove previous image
+    shell: docker images | grep '^<none>' | awk '{print $3}' | xargs --no-run-if-empty docker rmi -f
