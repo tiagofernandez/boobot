@@ -7,14 +7,13 @@ import (
 
 func Start(port string) {
 	iris.Get("/", func(c *iris.Context) {
-		c.JSON(200, iris.Map{
+		c.JSON(iris.StatusOK, iris.Map{
 			"Message": "👋, 🌎!",
 		})
 	})
 	iris.Get("/boobs", func(c *iris.Context) {
-		c.JSON(200, iris.Map{
-			"URL": GimmeSomeBoobs(),
-		})
+		c.Data(iris.StatusOK, GimmeSomeBoobs())
+		c.SetContentType("image")
 	})
 	iris.Listen("0.0.0.0:" + port)
 	log.Println("Boobot is online ( o Y o )")

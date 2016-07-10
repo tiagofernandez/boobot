@@ -1,6 +1,7 @@
 package boobot
 
 import (
+	"bytes"
 	"encoding/json"
 	"io"
 	"log"
@@ -13,8 +14,8 @@ type ImageJson struct {
 }
 type ImagesJson []ImageJson
 
-func GimmeSomeBoobs() string {
-	url := "http://tinyurl.com/tits-not-found"
+func GimmeSomeBoobs() []byte {
+	url := "https://cdn.boldomatic.com/content/post/AnZxFQ-7c08343dc0d8ff17bc01e946b0260d7ddf622e9e8cdbc549a2b9976985374fca/Error-404-Tits-not-found"
 	HttpGet("http://api.oboobs.ru/noise/1", func(body io.ReadCloser) {
 		var data ImagesJson
 		err := json.NewDecoder(body).Decode(&data)
@@ -24,5 +25,12 @@ func GimmeSomeBoobs() string {
 			log.Println(err)
 		}
 	})
-	return url
+	log.Println(url)
+	img := make([]byte, 0)
+	HttpGet(url, func(body io.ReadCloser) {
+		buf := new(bytes.Buffer)
+		buf.ReadFrom(body)
+		img = buf.Bytes()
+	})
+	return img
 }

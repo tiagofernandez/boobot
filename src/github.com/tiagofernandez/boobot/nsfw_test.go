@@ -3,11 +3,10 @@ package boobot
 import "testing"
 
 func TestGimmeSomeBoobs(t *testing.T) {
-	fail := "http://tinyurl.com/tits-not-found"
 	actual := GimmeSomeBoobs()
-	if actual == fail {
-		t.Error("Test failed: " + actual)
+	if len(actual) == 47400 {
+		t.Error("Test failed")
 	} else {
-		t.Log(actual)
+		t.Log(len(actual))
 	}
 }
