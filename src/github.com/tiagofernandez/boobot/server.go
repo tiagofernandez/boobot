@@ -1,4 +1,4 @@
-package boobot
+package goatbot
 
 import (
 	"github.com/kataras/iris"
@@ -16,5 +16,5 @@ func Start(port string) {
 		c.SetContentType("image")
 	})
 	iris.Listen("0.0.0.0:" + port)
-	log.Println("Boobot is online ( o Y o )")
+	log.Println("GoatBot is online!")
 }

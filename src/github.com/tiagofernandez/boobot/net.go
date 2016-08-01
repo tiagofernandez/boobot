@@ -1,4 +1,4 @@
-package boobot
+package goatbot
 
 import (
 	"io"

@@ -4,7 +4,7 @@
   remote_user: pi
   sudo: true
   vars:
-    app_name: boobot
+    app_name: goatbot
     image_file: /tmp/{{app_name}}.tar
     port: 6970
   tasks:

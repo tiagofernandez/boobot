@@ -1,6 +1,4 @@
-# Boobot
-
-Boobs-powered robot enslaved by online pirates, programmed to serve in random group chats. ( 🤖 Y 🤖 )
+# GoatBot 🐐🤖
 
 ## Setup
 

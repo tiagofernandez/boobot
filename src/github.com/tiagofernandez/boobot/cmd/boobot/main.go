@@ -1,10 +1,10 @@
 package main
 
 import (
-	"github.com/tiagofernandez/boobot"
+	"github.com/tiagofernandez/goatbot"
 	"os"
 )
 
 func main() {
-	boobot.Start(os.Args[1])
+	goatbot.Start(os.Args[1])
 }

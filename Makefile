@@ -1,4 +1,4 @@
-NAME = boobot
+NAME = goatbot
 TAG = latest
 PORT = 6970
 
