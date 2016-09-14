@@ -11,6 +11,8 @@ import (
 // slice. See example code for details.
 //
 // Use AcquireByteBuffer for obtaining an empty byte buffer.
+//
+// ByteBuffer is deprecated. Use github.com/valyala/bytebufferpool instead.
 type ByteBuffer bytebufferpool.ByteBuffer
 
 // Write implements io.Writer - it appends p to ByteBuffer.B
@@ -44,7 +46,7 @@ func (b *ByteBuffer) Reset() {
 // This reduces the number of memory allocations required for byte buffer
 // management.
 func AcquireByteBuffer() *ByteBuffer {
-	return (*ByteBuffer)(bytebufferpool.Acquire())
+	return (*ByteBuffer)(defaultByteBufferPool.Get())
 }
 
 // ReleaseByteBuffer returns byte buffer to the pool.
@@ -52,9 +54,11 @@ func AcquireByteBuffer() *ByteBuffer {
 // ByteBuffer.B mustn't be touched after returning it to the pool.
 // Otherwise data races occur.
 func ReleaseByteBuffer(b *ByteBuffer) {
-	bytebufferpool.Release(bb(b))
+	defaultByteBufferPool.Put(bb(b))
 }
 
 func bb(b *ByteBuffer) *bytebufferpool.ByteBuffer {
 	return (*bytebufferpool.ByteBuffer)(b)
 }
+
+var defaultByteBufferPool bytebufferpool.Pool

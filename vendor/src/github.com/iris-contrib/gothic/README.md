@@ -39,7 +39,7 @@ This package was inspired by [https://github.com/intridea/omniauth](https://gith
 
 ## Docs
 
-The API docs can be found at [http://godoc.org/github.com/iris-contrib/goth](http://godoc.org/github.com/iris-contrib/goth)
+The API docs can be found at [http://godoc.org/github.com/markbates/goth](http://godoc.org/github.com/markbates/goth)
 
 ## Installation
 
@@ -81,7 +81,7 @@ $ go get github.com/iris-contrib/goth
 
 ## Examples
 
-See the [examples](examples) folder for a working application that lets users authenticate
+See the [example](https://github.com/iris-contrib/gothic/tree/master/example) folder for a working application that lets users authenticate
 through Twitter, Facebook, Google Plus etc.
 
 ## Issues

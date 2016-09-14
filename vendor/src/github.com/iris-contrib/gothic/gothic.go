@@ -108,13 +108,9 @@ func GetAuthURL(ctx context.IContext) (string, error) {
 		return "", err
 	}
 
-	err = ctx.Session().Set(SessionName, sess.Marshal())
+	ctx.Session().Set(SessionName, sess.Marshal())
 
-	if err != nil {
-		return "", err
-	}
-
-	return url, err
+	return url, nil
 }
 
 /*

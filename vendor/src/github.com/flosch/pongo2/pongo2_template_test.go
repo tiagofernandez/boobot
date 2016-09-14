@@ -124,6 +124,7 @@ Yep!`,
 		"one_item_list":      []int{99},
 		"multiple_item_list": []int{1, 1, 2, 3, 5, 8, 13, 21, 34, 55},
 		"unsorted_int_list":  []int{192, 581, 22, 1, 249, 9999, 1828591, 8271},
+		"fixed_item_list":    [...]int{1, 2, 3, 4},
 		"misc_list":          []interface{}{"Hello", 99, 3.14, "good"},
 		"escape_text":        "This is \\a Test. \"Yep\". 'Yep'.",
 		"xss":                "<script>alert(\"uh oh\");</script>",
@@ -299,6 +300,11 @@ func TestExecutionErrors(t *testing.T) {
 			tpl, err := pongo2.FromString(test)
 			if err != nil {
 				t.Fatalf("Error on FromString('%s'): %s", test, err.Error())
+			}
+
+			tpl, err = pongo2.FromBytes([]byte(test))
+			if err != nil {
+				t.Fatalf("Error on FromBytes('%s'): %s", test, err.Error())
 			}
 
 			_, err = tpl.ExecuteBytes(tplContext)

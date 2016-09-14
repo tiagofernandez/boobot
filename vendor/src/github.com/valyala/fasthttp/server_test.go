@@ -17,6 +17,31 @@ import (
 	"github.com/valyala/fasthttp/fasthttputil"
 )
 
+func TestRequestCtxIsTLS(t *testing.T) {
+	var ctx RequestCtx
+
+	// tls.Conn
+	ctx.c = &tls.Conn{}
+	if !ctx.IsTLS() {
+		t.Fatalf("IsTLS must return true")
+	}
+
+	// non-tls.Conn
+	ctx.c = &readWriter{}
+	if ctx.IsTLS() {
+		t.Fatalf("IsTLS must return false")
+	}
+
+	// overriden tls.Conn
+	ctx.c = &struct {
+		*tls.Conn
+		fooBar bool
+	}{}
+	if !ctx.IsTLS() {
+		t.Fatalf("IsTLS must return true")
+	}
+}
+
 func TestRequestCtxRedirect(t *testing.T) {
 	testRequestCtxRedirect(t, "http://qqq/", "", "http://qqq/")
 	testRequestCtxRedirect(t, "http://qqq/foo/bar?baz=111", "", "http://qqq/foo/bar?baz=111")
@@ -34,6 +59,7 @@ func TestRequestCtxRedirect(t *testing.T) {
 	testRequestCtxRedirect(t, "http://qqq/foo/bar?baz=111", "./.././../x.html", "http://qqq/x.html")
 	testRequestCtxRedirect(t, "http://qqq/foo/bar?baz=111", "http://foo.bar/baz", "http://foo.bar/baz")
 	testRequestCtxRedirect(t, "http://qqq/foo/bar?baz=111", "https://foo.bar/baz", "https://foo.bar/baz")
+	testRequestCtxRedirect(t, "https://foo.com/bar?aaa", "//google.com/aaa?bb", "https://google.com/aaa?bb")
 }
 
 func testRequestCtxRedirect(t *testing.T, origURL, redirectURL, expectedURL string) {
@@ -1030,6 +1056,17 @@ func TestRequestCtxUserValue(t *testing.T) {
 		if !ok || n != i {
 			t.Fatalf("unexpected value obtained for key %q: %v. Expecting %d", k, v, i)
 		}
+	}
+	vlen := 0
+	ctx.VisitUserValues(func(key []byte, value interface{}) {
+		vlen++
+		v := ctx.UserValueBytes(key)
+		if v != value {
+			t.Fatalf("unexpected value obtained from VisitUserValues for key: %q, expecting: %#v but got: %#v", key, v, value)
+		}
+	})
+	if len(ctx.userValues) != vlen {
+		t.Fatalf("the length of user values returned from VisitUserValues is not equal to the length of the userValues, expecting: %d but got: %d", len(ctx.userValues), vlen)
 	}
 }
 

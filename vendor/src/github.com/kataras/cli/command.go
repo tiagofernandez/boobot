@@ -74,7 +74,7 @@ func (c *command) Flag(name string, defaultValue interface{}, usage string) *com
 	}
 	valPointer := requestFlagValue(c.flagset, name, defaultValue, usage)
 
-	newFlag := &flag{name, defaultValue, usage, valPointer}
+	newFlag := &flag{name, defaultValue, usage, valPointer, c.flagset}
 	c.Flags = append(c.Flags, newFlag)
 	return c
 }

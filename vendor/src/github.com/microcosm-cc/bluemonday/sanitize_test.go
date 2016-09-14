@@ -157,10 +157,6 @@ func TestLinks(t *testing.T) {
 			expected: `<a href="#top" rel="nofollow">`,
 		},
 		test{
-			in:       `<a href="?">`,
-			expected: ``,
-		},
-		test{
 			in:       `<a href="?q=1">`,
 			expected: `<a href="?q=1" rel="nofollow">`,
 		},
@@ -204,11 +200,11 @@ func TestLinkTargets(t *testing.T) {
 	tests := []test{
 		test{
 			in:       `<a href="http://www.google.com">`,
-			expected: `<a href="http://www.google.com" rel="nofollow" target="_blank">`,
+			expected: `<a href="http://www.google.com" rel="nofollow noopener" target="_blank">`,
 		},
 		test{
 			in:       `<a href="//www.google.com">`,
-			expected: `<a href="//www.google.com" rel="nofollow" target="_blank">`,
+			expected: `<a href="//www.google.com" rel="nofollow noopener" target="_blank">`,
 		},
 		test{
 			in:       `<a href="/www.google.com">`,
@@ -229,10 +225,6 @@ func TestLinkTargets(t *testing.T) {
 		test{
 			in:       `<a href="#top">`,
 			expected: `<a href="#top">`,
-		},
-		test{
-			in:       `<a href="?">`,
-			expected: ``,
 		},
 		test{
 			in:       `<a href="?q=1">`,
@@ -1251,7 +1243,7 @@ func TestIssue9(t *testing.T) {
 
 	tt = test{
 		in:       `<h2><a name="git-diff" class="anchor" href="https://github.com/shurcooL/github_flavored_markdown/blob/master/sanitize_test.go" aria-hidden="true"><span class="octicon octicon-link"></span></a>git diff</h2>`,
-		expected: `<h2><a name="git-diff" class="anchor" href="https://github.com/shurcooL/github_flavored_markdown/blob/master/sanitize_test.go" aria-hidden="true" rel="nofollow" target="_blank"><span class="octicon octicon-link"></span></a>git diff</h2>`,
+		expected: `<h2><a name="git-diff" class="anchor" href="https://github.com/shurcooL/github_flavored_markdown/blob/master/sanitize_test.go" aria-hidden="true" rel="nofollow noopener" target="_blank"><span class="octicon octicon-link"></span></a>git diff</h2>`,
 	}
 	out = p.Sanitize(tt.in)
 	if out != tt.expected {
@@ -1265,7 +1257,7 @@ func TestIssue9(t *testing.T) {
 
 	tt = test{
 		in:       `<h2><a name="git-diff" class="anchor" href="https://github.com/shurcooL/github_flavored_markdown/blob/master/sanitize_test.go" aria-hidden="true" target="namedwindow"><span class="octicon octicon-link"></span></a>git diff</h2>`,
-		expected: `<h2><a name="git-diff" class="anchor" href="https://github.com/shurcooL/github_flavored_markdown/blob/master/sanitize_test.go" aria-hidden="true" rel="nofollow" target="_blank"><span class="octicon octicon-link"></span></a>git diff</h2>`,
+		expected: `<h2><a name="git-diff" class="anchor" href="https://github.com/shurcooL/github_flavored_markdown/blob/master/sanitize_test.go" aria-hidden="true" rel="nofollow noopener" target="_blank"><span class="octicon octicon-link"></span></a>git diff</h2>`,
 	}
 	out = p.Sanitize(tt.in)
 	if out != tt.expected {
@@ -1414,4 +1406,111 @@ func TestTagSkipClosingTagNested(t *testing.T) {
 			outputOk,
 		)
 	}
+}
+
+func TestAddSpaces(t *testing.T) {
+	p := UGCPolicy()
+	p.AddSpaceWhenStrippingTag(true)
+
+	tests := []test{
+		test{
+			in:       `<foo>Hello</foo><bar>World</bar>`,
+			expected: ` Hello  World `,
+		},
+		test{
+			in:       `<p>Hello</p><bar>World</bar>`,
+			expected: `<p>Hello</p> World `,
+		},
+		test{
+			in:       `<p>Hello</p><foo /><p>World</p>`,
+			expected: `<p>Hello</p> <p>World</p>`,
+		},
+	}
+
+	// These tests are run concurrently to enable the race detector to pick up
+	// potential issues
+	wg := sync.WaitGroup{}
+	wg.Add(len(tests))
+	for ii, tt := range tests {
+		go func(ii int, tt test) {
+			out := p.Sanitize(tt.in)
+			if out != tt.expected {
+				t.Errorf(
+					"test %d failed;\ninput   : %s\noutput  : %s\nexpected: %s",
+					ii,
+					tt.in,
+					out,
+					tt.expected,
+				)
+			}
+			wg.Done()
+		}(ii, tt)
+	}
+	wg.Wait()
+}
+
+func TestTargetBlankNoOpener(t *testing.T) {
+	p := UGCPolicy()
+	p.AddTargetBlankToFullyQualifiedLinks(true)
+	p.AllowAttrs("target").Matching(Paragraph).OnElements("a")
+
+	tests := []test{
+		test{
+			in:       `<a href="/path" />`,
+			expected: `<a href="/path" rel="nofollow"/>`,
+		},
+		test{
+			in:       `<a href="/path" target="_blank" />`,
+			expected: `<a href="/path" target="_blank" rel="nofollow noopener"/>`,
+		},
+		test{
+			in:       `<a href="/path" target="foo" />`,
+			expected: `<a href="/path" target="foo" rel="nofollow"/>`,
+		},
+		test{
+			in:       `<a href="https://www.google.com/" />`,
+			expected: `<a href="https://www.google.com/" rel="nofollow noopener" target="_blank"/>`,
+		},
+		test{
+			in:       `<a href="https://www.google.com/" target="_blank"/>`,
+			expected: `<a href="https://www.google.com/" target="_blank" rel="nofollow noopener"/>`,
+		},
+		test{
+			in:       `<a href="https://www.google.com/" rel="nofollow"/>`,
+			expected: `<a href="https://www.google.com/" rel="nofollow noopener" target="_blank"/>`,
+		},
+		test{
+			in:       `<a href="https://www.google.com/" rel="noopener"/>`,
+			expected: `<a href="https://www.google.com/" rel="nofollow noopener" target="_blank"/>`,
+		},
+		test{
+			in:       `<a href="https://www.google.com/" rel="noopener nofollow" />`,
+			expected: `<a href="https://www.google.com/" rel="nofollow noopener" target="_blank"/>`,
+		},
+		test{
+			in:       `<a href="https://www.google.com/" target="foo" />`,
+			expected: `<a href="https://www.google.com/" target="_blank" rel="nofollow noopener"/>`,
+		},
+	}
+
+	// These tests are run concurrently to enable the race detector to pick up
+	// potential issues
+	wg := sync.WaitGroup{}
+	wg.Add(len(tests))
+	for ii, tt := range tests {
+		go func(ii int, tt test) {
+			out := p.Sanitize(tt.in)
+			if out != tt.expected {
+				t.Errorf(
+					"test %d failed;\ninput   : %s\noutput  : %s\nexpected: %s",
+					ii,
+					tt.in,
+					out,
+					tt.expected,
+				)
+			}
+			wg.Done()
+		}(ii, tt)
+	}
+	wg.Wait()
 }

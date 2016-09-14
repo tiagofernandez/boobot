@@ -41,10 +41,11 @@ type flag struct { //lowercase in order to have the ability to do cli.Flag(...) 
 	Default interface{}
 	Usage   string
 	Value   interface{}
+	Raw     *goflags.FlagSet
 }
 
-func Flag(name string, defaultValue interface{}, usage string) *flag {
-	return &flag{name, defaultValue, usage, nil}
+func Flag(name string, defaultValue interface{}, usage string, raw *goflags.FlagSet) *flag {
+	return &flag{name, defaultValue, usage, nil, raw}
 }
 
 func (f flag) Alias() string {

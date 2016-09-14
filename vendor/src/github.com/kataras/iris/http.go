@@ -2,17 +2,21 @@ package iris
 
 import (
 	"bytes"
+	"crypto/tls"
 	"net"
 	"net/http"
 	"net/http/pprof"
 	"os"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
+	"time"
 
-	"github.com/kataras/iris/config"
-	"github.com/kataras/iris/errors"
-	"github.com/kataras/iris/logger"
+	"log"
+
+	"github.com/iris-contrib/letsencrypt"
+	"github.com/kataras/go-errors"
 	"github.com/kataras/iris/utils"
 	"github.com/valyala/fasthttp"
 	"github.com/valyala/fasthttp/fasthttpadaptor"
@@ -228,45 +232,61 @@ func StatusText(code int) string {
 var (
 	errServerPortAlreadyUsed = errors.New("Server can't run, port is already used")
 	errServerAlreadyStarted  = errors.New("Server is already started and listening")
-	errServerConfigMissing   = errors.New("Empty Config for server")
 	errServerHandlerMissing  = errors.New("Handler is missing from server, can't start without handler")
 	errServerIsClosed        = errors.New("Can't close the server, propably is already closed or never started")
 	errServerRemoveUnix      = errors.New("Unexpected error when trying to remove unix socket file. Addr: %s | Trace: %s")
 	errServerChmod           = errors.New("Cannot chmod %#o for %q: %s")
 )
 
-// Server the http server
-type Server struct {
-	*fasthttp.Server
-	listener net.Listener
-	Config   *config.Server
-	tls      bool
-	mu       sync.Mutex
-}
+type (
+	// Server the http server
+	Server struct {
+		*fasthttp.Server
+		listener net.Listener
+		Config   ServerConfiguration
+		tls      bool
+		mu       sync.Mutex
+	}
+	// ServerList contains the servers connected to the Iris station
+	ServerList struct {
+		mux     *serveMux
+		servers []*Server
+	}
+)
 
 // newServer returns a pointer to a Server object, and set it's options if any,  nothing more
-func newServer(c *config.Server) *Server {
-	s := &Server{Server: &fasthttp.Server{Name: config.ServerName}, Config: c}
-	return s
-}
-
-// SetHandler sets the handler in order to listen on client requests
-func (s *Server) SetHandler(mux *serveMux) {
-	if s.Server != nil {
-		s.Server.Handler = mux.ServeRequest()
+func newServer(setters ...OptionServerSettter) *Server {
+	c := DefaultServerConfiguration()
+	for _, setter := range setters {
+		setter.Set(&c)
 	}
+
+	s := &Server{Server: &fasthttp.Server{Name: c.Name}, Config: c}
+	return s
 }
 
 // IsListening returns true if server is listening/started, otherwise false
 func (s *Server) IsListening() bool {
+	if s == nil {
+		return false
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.listener != nil && s.listener.Addr().String() != ""
 }
 
+// IsOpened checks if handler is not nil and returns true if not, otherwise false
+// this is used to see if a server has opened, use IsListening if you want to see if the server is actually ready to serve connections
+func (s *Server) IsOpened() bool {
+	if s == nil {
+		return false
+	}
+	return s.Server != nil && s.Server.Handler != nil
+}
+
 // IsSecure returns true if server uses TLS, otherwise false
 func (s *Server) IsSecure() bool {
-	return s.tls
+	return s.tls || s.Config.AutoTLS // for any case
 }
 
 // Listener returns the net.Listener which this server (is) listening to
@@ -274,64 +294,73 @@ func (s *Server) Listener() net.Listener {
 	return s.listener
 }
 
-// Host returns the Listener().Addr().String(), if server is not listening it returns the config.ListeningAddr
-func (s *Server) Host() (host string) {
-	if s.IsListening() {
-		return s.Listener().Addr().String()
-	}
-	return s.Config.ListeningAddr
-
-}
-
-// VirtualHost returns the s.Config.ListeningAddr
-//
-func (s *Server) VirtualHost() (host string) {
-	// check the addr if :8080 do it 0.0.0.0:8080 ,we need the hostname for many cases
-	a := s.Config.ListeningAddr
-	//check if contains hostname, we need the full host, :8080 should be : 127.0.0.1:8080
-	if portIdx := strings.IndexByte(a, ':'); portIdx == 0 {
-		// then the : is the first letter, so we dont have setted a hostname, lets set it
-		s.Config.ListeningAddr = config.DefaultServerHostname + a
+// Host returns the registered host for the server
+func (s *Server) Host() string {
+	if s.Config.VListeningAddr != "" {
+		return s.Config.VListeningAddr
 	}
 	return s.Config.ListeningAddr
 }
 
-// Fullhost returns the scheme+host
-func (s *Server) FullHost() string {
+// Port returns the port which server listening for
+// if no port given with the ListeningAddr, it returns 80
+func (s *Server) Port() int {
+	a := s.Host()
+	if portIdx := strings.IndexByte(a, ':'); portIdx != -1 {
+		p, err := strconv.Atoi(a[portIdx+1:])
+		if err != nil {
+			if s.Config.AutoTLS {
+				return 443
+			}
+			return 80
+		}
+		return p
+	}
+	if s.Config.AutoTLS {
+		return 443
+	}
+	return 80
+
+}
+
+// Scheme returns http:// or https:// if SSL is enabled
+func (s *Server) Scheme() string {
 	scheme := "http://"
 	// we need to be able to take that before(for testing &debugging) and after server's listen
-	if s.IsSecure() || (s.Config.CertFile != "" && s.Config.KeyFile != "") {
+	if s.IsSecure() || (s.Config.CertFile != "" && s.Config.KeyFile != "") || s.Config.AutoTLS {
 		scheme = "https://"
 	}
-	return scheme + s.VirtualHost()
+	// but if virtual scheme is setted and it differs from the real scheme, return the vscheme
+	// the developer should set it correctly, http:// or https:// or anything at the future:P
+	vscheme := s.Config.VScheme
+	if len(vscheme) > 0 && vscheme != scheme {
+		return vscheme
+	}
+
+	return scheme
 }
 
-// Hostname returns the hostname part only, if host == localhost:8080 it will return the localhost
-// if server is not listening it returns the config.ListeningAddr's hostname part
-func (s *Server) Hostname() (hostname string) {
-	if s.IsListening() {
-		fullhost := s.Listener().Addr().String()
-		hostname = fullhost[0:strings.IndexByte(fullhost, ':')] // no the port
-	} else {
-		hostname = s.VirtualHostname()
-	}
-	return
+// FullHost returns the scheme+host
+func (s *Server) FullHost() string {
+	return s.Scheme() + s.Host()
 }
 
-// VirtualHostname returns the hostname that user registers, host path maybe differs from the real which is HostString, which taken from a net.listener
-func (s *Server) VirtualHostname() (hostname string) {
-	hostname = s.Config.ListeningAddr
-	if idx := strings.IndexByte(hostname, ':'); idx > 1 { // at least after second char
-		hostname = hostname[0:idx]
-	} else {
-		hostname = config.DefaultServerHostname
-	}
-	return
+// Hostname returns the hostname part of the host (host expect port)
+func (s *Server) Hostname() string {
+	a := s.Host()
+	idxPort := strings.IndexByte(a, ':')
+	if idxPort > 0 {
+		// port exists, (it always exists for Config.ListeningAddr
+		return a[0:idxPort] // except the port
+	} // but for Config.VListeningAddr the developer maybe doesn't uses the host:port format
+
+	// so, if no port found, then return the Host as it is, it should be something 'mydomain.com'
+	return a
 }
 
 func (s *Server) listen() error {
 	if s.IsListening() {
-		return errServerAlreadyStarted.Return()
+		return errServerAlreadyStarted
 	}
 	listener, err := net.Listen("tcp4", s.Config.ListeningAddr)
 
@@ -356,7 +385,7 @@ func (s *Server) listenUNIX() error {
 	listener, err := net.Listen("unix", addr)
 
 	if err != nil {
-		return errServerPortAlreadyUsed.Return()
+		return errServerPortAlreadyUsed
 	}
 
 	if err = os.Chmod(addr, mode); err != nil {
@@ -376,47 +405,188 @@ func (s *Server) serve(l net.Listener) error {
 	if s.Config.CertFile != "" && s.Config.KeyFile != "" {
 		s.tls = true
 		return s.Server.ServeTLS(s.listener, s.Config.CertFile, s.Config.KeyFile)
+	} else if s.Config.AutoTLS {
+		var m letsencrypt.Manager
+		if err := m.CacheFile("letsencrypt.cache"); err != nil {
+			return err
+		}
+		tlsConfig := &tls.Config{GetCertificate: m.GetCertificate}
+
+		ln := tls.NewListener(l, tlsConfig)
+		s.tls = true
+		s.mu.Lock()
+		s.listener = ln
+		s.mu.Unlock()
 	}
-	s.tls = false
+
 	return s.Server.Serve(s.listener)
 }
 
 // Open opens/starts/runs/listens (to) the server, listen tls if Cert && Key is registed, listenUNIX if Mode is registed, otherwise listen
-func (s *Server) Open() error {
+func (s *Server) Open(h fasthttp.RequestHandler) error {
+	if h == nil {
+		return errServerHandlerMissing
+	}
+
 	if s.IsListening() {
-		return errServerAlreadyStarted.Return()
+		return errServerAlreadyStarted
 	}
 
-	if s.Config.ListeningAddr == "" {
-		return errServerConfigMissing.Return()
-	}
+	s.Server.MaxRequestBodySize = s.Config.MaxRequestBodySize
+	s.Server.ReadBufferSize = s.Config.ReadBufferSize
+	s.Server.WriteBufferSize = s.Config.WriteBufferSize
+	s.Server.ReadTimeout = s.Config.ReadTimeout
+	s.Server.WriteTimeout = s.Config.WriteTimeout
 
-	if s.Handler == nil {
-		return errServerHandlerMissing.Return()
-	}
-
-	// check the addr if :8080 do it 0.0.0.0:8080 ,we need the hostname for many cases
-	a := s.Config.ListeningAddr
-	//check if contains hostname, we need the full host, :8080 should be : 127.0.0.1:8080
-	if portIdx := strings.IndexByte(a, ':'); portIdx == 0 {
-		// then the : is the first letter, so we dont have setted a hostname, lets set it
-		s.Config.ListeningAddr = config.DefaultServerHostname + a
+	if s.Config.RedirectTo != "" {
+		// override the handler and redirect all requests to this addr
+		s.Server.Handler = func(reqCtx *fasthttp.RequestCtx) {
+			path := string(reqCtx.Path())
+			redirectTo := s.Config.RedirectTo
+			if path != "/" {
+				redirectTo += "/" + path
+			}
+			reqCtx.Redirect(redirectTo, StatusMovedPermanently)
+		}
+	} else {
+		s.Server.Handler = h
 	}
 
 	if s.Config.Mode > 0 {
 		return s.listenUNIX()
 	}
-	return s.listen()
-}
 
-// close closes the server
-func (s *Server) close() (err error) {
-	if !s.IsListening() {
-		return errServerIsClosed.Return()
+	s.Config.ListeningAddr = ServerParseAddr(s.Config.ListeningAddr)
+
+	if s.Config.Virtual {
+		return nil
 	}
 
+	return s.listen()
+
+}
+
+// Close terminates the server
+func (s *Server) Close() (err error) {
+	if !s.IsListening() {
+		return errServerIsClosed
+	}
 	err = s.listener.Close()
 
+	return
+}
+
+// -------------------------------------------------------------------------------------
+// -------------------------------------------------------------------------------------
+// --------------------------------ServerList implementation-----------------------------
+// -------------------------------------------------------------------------------------
+// -------------------------------------------------------------------------------------
+
+// Add adds a server to the list by its config
+// returns the new server
+func (s *ServerList) Add(setters ...OptionServerSettter) *Server {
+	srv := newServer(setters...)
+	s.servers = append(s.servers, srv)
+	return srv
+}
+
+// Len returns the size of the server list
+func (s *ServerList) Len() int {
+	return len(s.servers)
+}
+
+// Main returns the main server,
+// the last added server is the main server, even if's Virtual
+func (s *ServerList) Main() (srv *Server) {
+	l := len(s.servers) - 1
+	for i := range s.servers {
+		if i == l {
+			return s.servers[i]
+		}
+	}
+	return nil
+}
+
+// Get returns the server by it's registered Address
+func (s *ServerList) Get(addr string) (srv *Server) {
+	for i := range s.servers {
+		srv = s.servers[i]
+		if srv.Config.ListeningAddr == addr {
+			return
+		}
+	}
+	return
+}
+
+// GetAll returns all registered servers
+func (s *ServerList) GetAll() []*Server {
+	return s.servers
+}
+
+// GetByIndex returns a server from the list by it's index
+func (s *ServerList) GetByIndex(i int) *Server {
+	if len(s.servers) >= i+1 {
+		return s.servers[i]
+	}
+	return nil
+}
+
+// Remove deletes a server by it's registered Address
+// returns true if something was removed, otherwise returns false
+func (s *ServerList) Remove(addr string) bool {
+	servers := s.servers
+	for i := range servers {
+		srv := servers[i]
+		if srv.Config.ListeningAddr == addr {
+			copy(servers[i:], servers[i+1:])
+			servers[len(servers)-1] = nil
+			s.servers = servers[:len(servers)-1]
+			return true
+		}
+	}
+	return false
+}
+
+// CloseAll terminates all listening servers
+// returns the first error, if erro happens it continues to closes the rest of the servers
+func (s *ServerList) CloseAll() (err error) {
+	for i := range s.servers {
+		if err == nil {
+			err = s.servers[i].Close()
+		}
+	}
+	return
+}
+
+// OpenAll starts all servers
+// returns the first error happens to one of these servers
+// if one server gets error it closes the previous servers and exits from this process
+func (s *ServerList) OpenAll(reqHandler fasthttp.RequestHandler) error {
+	l := len(s.servers) - 1
+	for i := range s.servers {
+		if err := s.servers[i].Open(reqHandler); err != nil {
+			time.Sleep(2 * time.Second)
+			// for any case,
+			// we don't care about performance on initialization,
+			// we must make sure that the previous servers are running before closing them
+			s.CloseAll()
+			return err
+		}
+		if i == l {
+			s.mux.setHostname(s.servers[i].Hostname())
+		}
+
+	}
+	return nil
+}
+
+// GetAllOpened returns all opened/started servers
+func (s *ServerList) GetAllOpened() (servers []*Server) {
+	for i := range s.servers {
+		if s.servers[i].IsOpened() {
+			servers = append(servers, s.servers[i])
+		}
+	}
 	return
 }
 
@@ -506,7 +676,7 @@ func joinMiddleware(middleware1 Middleware, middleware2 Middleware) Middleware {
 
 func profileMiddleware(debugPath string) Middleware {
 	htmlMiddleware := HandlerFunc(func(ctx *Context) {
-		ctx.SetContentType(contentHTML + "; charset=" + config.Charset)
+		ctx.SetContentType(contentHTML + "; charset=" + ctx.framework.Config.Charset)
 		ctx.Next()
 	})
 	indexHandler := ToHandlerFunc(pprof.Index)
@@ -721,7 +891,7 @@ func (e *muxEntry) add(path string, middleware Middleware) error {
 
 					if len(path) >= len(e.part) && e.part == path[:len(e.part)] {
 
-						if len(e.part) >= len(path) || path[len(e.part)] == '/' {
+						if len(e.part) >= len(path) || path[len(e.part)] == slashByte {
 							continue loop
 						}
 					}
@@ -730,12 +900,11 @@ func (e *muxEntry) add(path string, middleware Middleware) error {
 
 				c := path[0]
 
-				if e.entryCase == hasParams && c == '/' && len(e.nodes) == 1 {
+				if e.entryCase == hasParams && c == slashByte && len(e.nodes) == 1 {
 					e = e.nodes[0]
 					e.precedence++
 					continue loop
 				}
-				//we need the i here to be re-setting, so use the same i variable as we declare it on line 176
 				for i := range e.tokens {
 					if c == e.tokens[i] {
 						i = e.precedenceTo(i)
@@ -964,7 +1133,7 @@ loop:
 			}
 
 			for i := range e.tokens {
-				if e.tokens[i] == '/' {
+				if e.tokens[i] == slashByte {
 					e = e.nodes[i]
 					mustRedirect = (len(e.part) == 1 && e.middleware != nil) ||
 						(e.entryCase == matchEverything && e.nodes[0].middleware != nil)
@@ -976,7 +1145,7 @@ loop:
 		}
 
 		mustRedirect = (path == slash) ||
-			(len(e.part) == len(path)+1 && e.part[len(path)] == '/' &&
+			(len(e.part) == len(path)+1 && e.part[len(path)] == slashByte &&
 				path == e.part[:len(e.part)-1] && e.middleware != nil)
 		return
 	}
@@ -1005,6 +1174,10 @@ func (e *muxEntry) precedenceTo(index int) int {
 	return newindex
 }
 
+//
+//
+//
+
 type (
 	// Route contains some useful information about a route
 	Route interface {
@@ -1016,8 +1189,12 @@ type (
 		Method() string
 		// Path returns the path
 		Path() string
+		// SetPath changes/sets the path for this route
+		SetPath(string)
 		// Middleware returns the slice of Handler([]Handler) registed to this route
 		Middleware() Middleware
+		// SetMiddleware changes/sets the middleware(handler(s)) for this route
+		SetMiddleware(Middleware)
 	}
 
 	route struct {
@@ -1107,8 +1284,34 @@ func (r route) Path() string {
 	return r.path
 }
 
+func (r *route) SetPath(s string) {
+	r.path = s
+}
+
 func (r route) Middleware() Middleware {
 	return r.middleware
+}
+
+func (r *route) SetMiddleware(m Middleware) {
+	r.middleware = m
+}
+
+// RouteConflicts checks for route's middleware conflicts
+func RouteConflicts(r *route, with string) bool {
+	for _, h := range r.middleware {
+		if m, ok := h.(interface {
+			Conflicts() string
+		}); ok {
+			if c := m.Conflicts(); c == with {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func (r *route) hasCors() bool {
+	return RouteConflicts(r, "httpmethod")
 }
 
 const (
@@ -1129,14 +1332,15 @@ type (
 	}
 
 	serveMux struct {
-		cPool   *sync.Pool
 		tree    *muxTree
 		lookups []*route
 
+		onLookup func(Route)
+
 		api           *muxAPI
 		errorHandlers map[int]Handler
-		logger        *logger.Logger
-		// the main server host's name, ex:  localhost, 127.0.0.1, iris-go.com
+		logger        *log.Logger
+		// the main server host's name, ex:  localhost, 127.0.0.1, 0.0.0.0, iris-go.com
 		hostname string
 		// if any of the trees contains not empty subdomain
 		hosts bool
@@ -1150,14 +1354,13 @@ type (
 	}
 )
 
-func newServeMux(contextPool sync.Pool, logger *logger.Logger) *serveMux {
+func newServeMux(logger *log.Logger) *serveMux {
 	mux := &serveMux{
-		cPool:         &contextPool,
 		lookups:       make([]*route, 0),
 		errorHandlers: make(map[int]Handler, 0),
-		hostname:      "127.0.0.1",
-		escapePath:    !config.DefaultDisablePathEscape,
-		correctPath:   !config.DefaultDisablePathCorrection,
+		hostname:      DefaultServerHostname, // these are changing when the server is up
+		escapePath:    !DefaultDisablePathEscape,
+		correctPath:   !DefaultDisablePathCorrection,
 		logger:        logger,
 	}
 
@@ -1228,6 +1431,9 @@ func (mux *serveMux) register(method []byte, subdomain string, path string, midd
 
 	// add to the lookups, it's just a collection of routes information
 	lookup := newRoute(method, subdomain, path, middleware)
+	if mux.onLookup != nil {
+		mux.onLookup(lookup)
+	}
 	mux.lookups = append(mux.lookups, lookup)
 
 	return lookup
@@ -1237,7 +1443,7 @@ func (mux *serveMux) register(method []byte, subdomain string, path string, midd
 // build collects all routes info and adds them to the registry in order to be served from the request handler
 // this happens once when server is setting the mux's handler.
 func (mux *serveMux) build() {
-
+	mux.tree = nil
 	sort.Sort(bySubdomain(mux.lookups))
 	for _, r := range mux.lookups {
 		// add to the registry tree
@@ -1277,26 +1483,37 @@ func (mux *serveMux) lookup(routeName string) *route {
 	return nil
 }
 
-func (mux *serveMux) ServeRequest() fasthttp.RequestHandler {
+func (mux *serveMux) Handler() HandlerFunc {
 
 	// initialize the router once
 	mux.build()
 	// optimize this once once, we could do that: context.RequestPath(mux.escapePath), but we lose some nanoseconds on if :)
-	getRequestPath := func(reqCtx *fasthttp.RequestCtx) string {
-		return utils.BytesToString(reqCtx.Path())
+	getRequestPath := func(ctx *Context) string {
+		return utils.BytesToString(ctx.Path()) //string(ctx.Path()[:]) // a little bit of memory allocation, old method used: BytesToString, If I see the benchmarks get low I will change it back to old, but this way is safer.
 	}
 	if !mux.escapePath {
-		getRequestPath = func(reqCtx *fasthttp.RequestCtx) string { return utils.BytesToString(reqCtx.RequestURI()) }
+		getRequestPath = func(ctx *Context) string { return utils.BytesToString(ctx.RequestCtx.RequestURI()) }
 	}
 
-	return func(reqCtx *fasthttp.RequestCtx) {
-		context := mux.cPool.Get().(*Context)
-		context.Reset(reqCtx)
+	methodEqual := func(treeMethod []byte, reqMethod []byte) bool {
+		return bytes.Equal(treeMethod, reqMethod)
+	}
 
-		routePath := getRequestPath(reqCtx)
+	// check for cors conflicts
+	for _, r := range mux.lookups {
+		if r.hasCors() {
+			methodEqual = func(treeMethod []byte, reqMethod []byte) bool {
+				return bytes.Equal(treeMethod, reqMethod) || bytes.Equal(reqMethod, methodOptionsBytes)
+			}
+			break
+		}
+	}
+
+	return func(context *Context) {
+		routePath := getRequestPath(context)
 		tree := mux.tree
 		for tree != nil {
-			if !bytes.Equal(tree.method, reqCtx.Method()) {
+			if !methodEqual(tree.method, context.Method()) {
 				// we break any CORS OPTIONS method
 				// but for performance reasons if user wants http method OPTIONS to be served
 				// then must register it with .Options(...)
@@ -1333,9 +1550,8 @@ func (mux *serveMux) ServeRequest() fasthttp.RequestHandler {
 				context.middleware = middleware
 				//ctx.Request.Header.SetUserAgentBytes(DefaultUserAgent)
 				context.Do()
-				mux.cPool.Put(context)
 				return
-			} else if mustRedirect && mux.correctPath && !bytes.Equal(reqCtx.Method(), methodConnectBytes) {
+			} else if mustRedirect && mux.correctPath && !bytes.Equal(context.Method(), methodConnectBytes) {
 
 				reqPath := routePath
 				pathLen := len(reqPath)
@@ -1360,7 +1576,6 @@ func (mux *serveMux) ServeRequest() fasthttp.RequestHandler {
 						note := "<a href=\"" + utils.HTMLEscape(urlToRedirect) + "\">Moved Permanently</a>.\n"
 						context.Write(note)
 					}
-					mux.cPool.Put(context)
 					return
 				}
 			}
@@ -1368,6 +1583,5 @@ func (mux *serveMux) ServeRequest() fasthttp.RequestHandler {
 			break
 		}
 		mux.fireError(StatusNotFound, context)
-		mux.cPool.Put(context)
 	}
 }

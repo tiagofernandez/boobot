@@ -78,7 +78,7 @@ func (a *App) Flag(name string, defaultValue interface{}, usage string) *App {
 		a.Flags = Flags{}
 	}
 
-	a.Flags = append(a.Flags, &flag{name, defaultValue, usage, nil})
+	a.Flags = append(a.Flags, &flag{name, defaultValue, usage, nil, nil})
 	return a
 }
 

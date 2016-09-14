@@ -1,5 +1,560 @@
 # History
 
+**How to upgrade**: remove your `$GOPATH/src/github.com/kataras/iris` folder, open your command-line and execute this command: `go get -u github.com/kataras/iris`.
+
+## 4.2.1 -> 4.2.2
+
+- Fix [sessiondb issue 416](https://github.com/kataras/iris/issues/416)
+
+## 4.2.0 -> 4.2.1
+
+- **CHANGE**: No front-end changes if you used the default response engines before. Response Engines to Serializers, `iris.ResponseEngine` `serializer.Serializer`, comes from `kataras/go-serializer` which is installed automatically when you upgrade iris with `-u` flag.
+
+    - the repo "github.com/iris-contrib/response" is a clone of "github.com/kataras/go-serializer", to keep compatibility state. examples and gitbook updated to work with the last.
+
+    - `iris.UseResponse(iris.ResponseEngine, ...string)func (string)` was used to register custom response engines, now you use: `iris.UseSerializer(key string, s serializer.Serializer)`.
+
+    - `iris.ResponseString` same defintion but differnet name now: `iris.SerializeToString`
+
+[Serializer examples](https://github.com/iris-contrib/examples/tree/master/serialize_engines) and [Book section](https://kataras.gitbooks.io/iris/content/serialize-engines.html) updated.
+
+
+## 4.1.7 -> 4.2.0
+
+- **ADDED**: `iris.TemplateSourceString(src string, binding interface{}) string` this will parse the src raw contents to the template engine and return the string result & `context.RenderTemplateSource(status int, src string, binding interface{}, options ...map[string]interface{}) error` this will parse the src raw contents to the template engine and render the result to the client, as requseted [here](https://github.com/kataras/iris/issues/409).
+
+
+This version has 'breaking' changes if you were, directly, passing custom configuration to a custom iris instance before.
+As the TODO2 I had to think and implement a way to make configuration even easier and more simple to use.
+
+With last changes in place, Iris is using new, cross-framework, and more stable packages made by me(so don't worry things are working and will as you expect) to render [templates](https://github.com/kataras/go-template), manage [sessions](https://github.com/kataras/go-sesions) and [websockets](https://github.com/kataras/go-websocket). So the `/kataras/iris/config` is no longer need to be there, we don't have core packages inside iris which need these configuration to other package-folder than the main anymore(in order to avoid the import-cycle), new file `/kataras/iris/configuration.go` is created for the configuration, which lives inside the main package, means that now:
+
+- **if you want to pass directly configuration to a new custom iris instance, you don't have to import the github.com/kataras/iris/config package**
+
+Naming changes:
+
+- `config.Iris` -> `iris.Configuration`, which is the parent/main configuration. Added: `TimeFormat` and `Other` (pass any dynamic custom, other options there)
+- `config.Sessions` -> `iris.SessionsConfiguration`
+- `config.Websocket` -> `iris.WebscoketConfiguration`
+- `config.Server` -> `iris.ServerConfiguration`
+- `config.Tester` -> `iris.TesterConfiguration`
+
+All these changes wasn't made only to remove the `./config` folder but to make easier for you to pass the exact configuration field/option you need to edit at the top of the default configuration, without need to pass the whole Configuration object. **Attention**: old way, pass `iris.Configuration` directly, is still valid object to pass to the  `iris.New`, so don't be afraid for breaking change, the only thing you will need to edit is the names of the configuration you saw on the previous paragraph.
+
+**Configuration Declaration**:
+
+instead of old, but still valid to pass to the `iris.New`:
+- `iris.New(iris.Configuration{Charset: "UTF-8", Sessions: iris.SessionsConfiguration{Cookie: "cookienameid"}})`
+now you can just write this:
+- `iris.New(iris.OptionCharset("UTF-8"), iris.OptionSessionsCookie("cookienameid"))`
+
+`.New` **by configuration**
+```go
+import "github.com/kataras/iris"
+//...
+myConfig := iris.Configuration{Charset: "UTF-8", IsDevelopment:true, Sessions: iris.SessionsConfiguration{Cookie:"mycookie"}, Websocket: iris.WebsocketConfiguration{Endpoint: "/my_endpoint"}}
+iris.New(myConfig)
+```
+
+`.New` **by options**
+
+```go
+import "github.com/kataras/iris"
+//...
+iris.New(iris.OptionCharset("UTF-8"), iris.OptionIsDevelopment(true), iris.OptionSessionsCookie("mycookie"), iris.OptionWebsocketEndpoint("/my_endpoint"))
+
+// if you want to set configuration after the .New use the .Set:
+iris.Set(iris.OptionDisableBanner(true))
+```
+
+**List** of all available options:
+```go
+// OptionDisablePathCorrection corrects and redirects the requested path to the registed path
+// for example, if /home/ path is requested but no handler for this Route found,
+// then the Router checks if /home handler exists, if yes,
+// (permant)redirects the client to the correct path /home
+//
+// Default is false
+OptionDisablePathCorrection(val bool)
+
+// OptionDisablePathEscape when is false then its escapes the path, the named parameters (if any).
+OptionDisablePathEscape(val bool)
+
+// OptionDisableBanner outputs the iris banner at startup
+//
+// Default is false
+OptionDisableBanner(val bool)
+
+// OptionLoggerOut is the destination for output
+//
+// Default is os.Stdout
+OptionLoggerOut(val io.Writer)
+
+// OptionLoggerPreffix is the logger's prefix to write at beginning of each line
+//
+// Default is [IRIS]
+OptionLoggerPreffix(val string)
+
+// OptionProfilePath a the route path, set it to enable http pprof tool
+// Default is empty, if you set it to a $path, these routes will handled:
+OptionProfilePath(val string)
+
+// OptionDisableTemplateEngines set to true to disable loading the default template engine (html/template) and disallow the use of iris.UseEngine
+// Default is false
+OptionDisableTemplateEngines(val bool)
+
+// OptionIsDevelopment iris will act like a developer, for example
+// If true then re-builds the templates on each request
+// Default is false
+OptionIsDevelopment(val bool)
+
+// OptionTimeFormat time format for any kind of datetime parsing
+OptionTimeFormat(val string)
+
+// OptionCharset character encoding for various rendering
+// used for templates and the rest of the responses
+// Default is "UTF-8"
+OptionCharset(val string)
+
+// OptionGzip enables gzip compression on your Render actions, this includes any type of render, templates and pure/raw content
+// If you don't want to enable it globaly, you could just use the third parameter on context.Render("myfileOrResponse", structBinding{}, iris.RenderOptions{"gzip": true})
+// Default is false
+OptionGzip(val bool)
+
+// OptionOther are the custom, dynamic options, can be empty
+// this fill used only by you to set any app's options you want
+// for each of an Iris instance
+OptionOther(val ...options.Options) //map[string]interface{}, options is github.com/kataras/go-options
+
+// OptionSessionsCookie string, the session's client cookie name, for example: "qsessionid"
+OptionSessionsCookie(val string)
+
+// OptionSessionsDecodeCookie set it to true to decode the cookie key with base64 URLEncoding
+// Defaults to false
+OptionSessionsDecodeCookie(val bool)
+
+// OptionSessionsExpires the duration of which the cookie must expires (created_time.Add(Expires)).
+// If you want to delete the cookie when the browser closes, set it to -1 but in this case, the server side's session duration is up to GcDuration
+//
+// Default infinitive/unlimited life duration(0)
+OptionSessionsExpires(val time.Duration)
+
+// OptionSessionsCookieLength the length of the sessionid's cookie's value, let it to 0 if you don't want to change it
+// Defaults to 32
+OptionSessionsCookieLength(val int)
+
+// OptionSessionsGcDuration every how much duration(GcDuration) the memory should be clear for unused cookies (GcDuration)
+// for example: time.Duration(2)*time.Hour. it will check every 2 hours if cookie hasn't be used for 2 hours,
+// deletes it from backend memory until the user comes back, then the session continue to work as it was
+//
+// Default 2 hours
+OptionSessionsGcDuration(val time.Duration)
+
+// OptionSessionsDisableSubdomainPersistence set it to true in order dissallow your q subdomains to have access to the session cookie
+// defaults to false
+OptionSessionsDisableSubdomainPersistence(val bool)
+
+// OptionWebsocketWriteTimeout time allowed to write a message to the connection.
+// Default value is 15 * time.Second
+OptionWebsocketWriteTimeout(val time.Duration)
+
+// OptionWebsocketPongTimeout allowed to read the next pong message from the connection
+// Default value is 60 * time.Second
+OptionWebsocketPongTimeout(val time.Duration)
+
+// OptionWebsocketPingPeriod send ping messages to the connection with this period. Must be less than PongTimeout
+// Default value is (PongTimeout * 9) / 10
+OptionWebsocketPingPeriod(val time.Duration)
+
+// OptionWebsocketMaxMessageSize max message size allowed from connection
+// Default value is 1024
+OptionWebsocketMaxMessageSize(val int64)
+
+// OptionWebsocketBinaryMessages set it to true in order to denotes binary data messages instead of utf-8 text
+// see https://github.com/kataras/iris/issues/387#issuecomment-243006022 for more
+// defaults to false
+OptionWebsocketBinaryMessages(val bool)
+
+// OptionWebsocketEndpoint is the path which the websocket server will listen for clients/connections
+// Default value is empty string, if you don't set it the Websocket server is disabled.
+OptionWebsocketEndpoint(val string)
+
+// OptionWebsocketReadBufferSize is the buffer size for the underline reader
+OptionWebsocketReadBufferSize(val int)
+
+// OptionWebsocketWriteBufferSize is the buffer size for the underline writer
+OptionWebsocketWriteBufferSize(val int)
+
+// OptionTesterListeningAddr is the virtual server's listening addr (host)
+// Default is "iris-go.com:1993"
+OptionTesterListeningAddr(val string)
+
+// OptionTesterExplicitURL If true then the url (should) be prepended manually, useful when want to test subdomains
+// Default is false
+OptionTesterExplicitURL(val bool)
+
+// OptionTesterDebug if true then debug messages from the httpexpect will be shown when a test runs
+// Default is false
+OptionTesterDebug(val bool)
+
+
+```
+
+Now, some of you maybe use more than one server inside their iris instance/app, so you used the `iris.AddServer(config.Server{})`, which now becomes `iris.AddServer(iris.ServerConfiguration{})`, ServerConfiguration has also (optional) options to pass there and to `iris.ListenTo(OptionServerListeningAddr("mydomain.com"))`:
+
+
+```go
+// examples:
+iris.AddServer(iris.OptionServerCertFile("file.cert"),iris.OptionServerKeyFile("file.key"))
+iris.ListenTo(iris.OptionServerReadBufferSize(42000))
+
+// or, old way but still valid:
+iris.AddServer(iris.ServerConfiguration{ListeningAddr: "mydomain.com", CertFile: "file.cert", KeyFile: "file.key"})
+iris.ListenTo(iris.ServerConfiguration{ReadBufferSize:42000, ListeningAddr: "mydomain.com"})
+```
+
+**List** of all Server's options:
+
+```go
+OptionServerListeningAddr(val string)
+
+OptionServerCertFile(val string)
+
+OptionServerKeyFile(val string)
+
+// AutoTLS enable to get certifications from the Letsencrypt
+// when this configuration field is true, the CertFile & KeyFile are empty, no need to provide a key.
+//
+// example: https://github.com/iris-contrib/examples/blob/master/letsencyrpt/main.go
+OptionServerAutoTLS(val bool)
+
+// Mode this is for unix only
+OptionServerMode(val os.FileMode)
+// OptionServerMaxRequestBodySize Maximum request body size.
+//
+// The server rejects requests with bodies exceeding this limit.
+//
+// By default request body size is 8MB.
+OptionServerMaxRequestBodySize(val int)
+
+// Per-connection buffer size for requests' reading.
+// This also limits the maximum header size.
+//
+// Increase this buffer if your clients send multi-KB RequestURIs
+// and/or multi-KB headers (for example, BIG cookies).
+//
+// Default buffer size is used if not set.
+OptionServerReadBufferSize(val int)
+
+// Per-connection buffer size for responses' writing.
+//
+// Default buffer size is used if not set.
+OptionServerWriteBufferSize(val int)
+
+// Maximum duration for reading the full request (including body).
+//
+// This also limits the maximum duration for idle keep-alive
+// connections.
+//
+// By default request read timeout is unlimited.
+OptionServerReadTimeout(val time.Duration)
+
+// Maximum duration for writing the full response (including body).
+//
+// By default response write timeout is unlimited.
+OptionServerWriteTimeout(val time.Duration)
+
+// RedirectTo, defaults to empty, set it in order to override the station's handler and redirect all requests to this address which is of form(HOST:PORT or :PORT)
+//
+// NOTE: the http status is 'StatusMovedPermanently', means one-time-redirect(the browser remembers the new addr and goes to the new address without need to request something from this server
+// which means that if you want to change this address you have to clear your browser's cache in order this to be able to change to the new addr.
+//
+// example: https://github.com/iris-contrib/examples/tree/master/multiserver_listening2
+OptionServerRedirectTo(val string)
+
+// OptionServerVirtual If this server is not really listens to a real host, it mostly used in order to achieve testing without system modifications
+OptionServerVirtual(val bool)
+
+// OptionServerVListeningAddr, can be used for both virtual = true or false,
+// if it's setted to not empty, then the server's Host() will return this addr instead of the ListeningAddr.
+// server's Host() is used inside global template helper funcs
+// set it when you are sure you know what it does.
+//
+// Default is empty ""
+OptionServerVListeningAddr(val string)
+
+// OptionServerVScheme if setted to not empty value then all template's helper funcs prepends that as the url scheme instead of the real scheme
+// server's .Scheme returns VScheme if  not empty && differs from real scheme
+//
+// Default is empty ""
+OptionServerVScheme(val string)
+
+// OptionServerName the server's name, defaults to "iris".
+// You're free to change it, but I will trust you to don't, this is the only setting whose somebody, like me, can see if iris web framework is used
+OptionServerName(val string)
+
+```    
+
+View all configuration fields and options by navigating to the [kataras/iris/configuration.go source file](https://github.com/kataras/iris/blob/master/configuration.go)
+
+[Book](https://kataras.gitbooks.io/iris/content/configuration.html) & [Examples](https://github.com/iris-contrib/examples) are updated (website docs will be updated soon).
+
+## 4.1.6 -> 4.1.7
+
+- **CHANGED**: Use of the standard `log.Logger` instead of the `iris-contrib/logger`(colorful logger), these changes are reflects some middleware, examples and plugins, I updated all of them, so don't worry.
+
+So, [iris-contrib/middleware/logger](https://github.com/iris-contrib/middleware/tree/master/logger) will now NO need to pass other Logger instead, instead of: `iris.Use(logger.New(iris.Logger))` use -> `iris.Use(logger.New())` which will use the iris/instance's Logger.
+
+- **ADDED**: `context.Framework()` which returns your Iris instance (typeof `*iris.Framework`), useful for the future(Iris will give you, soon, the ability to pass custom options inside an iris instance).
+
+## 4.1.5 -> 4.1.6
+
+- Align with [go-sessions](https://github.com/kataras/go-sessions), no front-end changes, however I think that the best time to make an upgrade to your local Iris is right now.
+
+## 4.1.4 -> 4.1.5
+
+- Remove unused Plugin's custom callbacks, if you still need them in your project use this instead: https://github.com/kataras/go-events
+
+## 4.1.3 -> 4.1.4
+
+Zero front-end changes. No real improvements, developers can ignore this update.
+
+- Replace the iris sessions with a new cross-framework package, [go-sessions](https://github.com/kataras/go-sessions). Same front-end API, sessions examples are compatible, configuration of `kataras/iris/config/sessions.go` is compatible. `kataras/context.SessionStore` is now `kataras/go-sessions.Session` (normally you, as user, never used it before, because of automatically session getting by `context.Session()`)
+
+- `GzipWriter` is taken, now, from the `kataras/go-fs` package which has improvements versus the previous implementation.
+
+
+## 4.1.2 -> 4.1.3
+
+Zero front-end changes. No real improvements, developers can ignore this update.
+
+- Replace the template engines with a new cross-framework package, [go-template](https://github.com/kataras/go-websocket). Same front-end API, examples and iris-contrib/template are compatible.
+
+## 4.1.1 -> 4.1.2
+
+Zero front-end changes. No real improvements, developers can ignore this update.
+
+- Replace the main and underline websocket implementation with [go-websocket](https://github.com/kataras/go-websocket). Note that we still need the [ris-contrib/websocket](https://github.com/iris-contrib/websocket) package.
+- Replace the use of iris-contrib/errors with [go-errors](https://github.com/kataras/go-errors), which has more features
+
+## 4.0.0 -> 4.1.1
+
+- **NEW FEATURE**: Basic remote control through SSH, example [here](https://github.com/iris-contrib/examples/blob/master/ssh/main.go)
+- **NEW FEATURE**: Optionally `OnError` foreach Party (by prefix, use it with your own risk), example [here](https://github.com/iris-contrib/examples/blob/master/httperrors/main.go#L37)
+- **NEW**: `iris.Config.Sessions.CookieLength`, You're able to customize the length of each sessionid's cookie's value. Default (and previous' implementation) is 32.
+- **FIX**: Websocket panic on non-websocket connection[*](https://github.com/kataras/iris/issues/367)
+- **FIX**: Multi websocket servers client-side source route panic[*](https://github.com/kataras/iris/issues/365)
+- Better gzip response managment
+
+
+## 4.0.0-alpha.5 -> 4.0.0
+
+- **Feature request has been implemented**: Add layout support for Pug/Jade, example [here](https://github.com/iris-contrib/examples/tree/master/template_engines/template_pug_2).
+- **Feature request has been implemented**: Forcefully closing a Websocket connection, `WebsocketConnection.Disconnect() error`.
+
+- **FIX**: WebsocketConnection.Leave() will hang websocket server if .Leave was called manually when the websocket connection has been closed.
+- **FIX**: StaticWeb not serving index.html correctly, align the func with the rest of Static funcs also, [example](https://github.com/iris-contrib/examples/tree/master/static_web) added.
+
+Notes: if you compare it with previous releases (13+ versions before v3 stable), the v4 stable release was fast, now we had only 6 versions before stable, that was happened because many of bugs have been already fixed and we hadn't new bug reports and secondly, and most important for me, some third-party features are implemented mostly by third-party packages via other developers!
+
+
+## 4.0.0-alpha.4 -> 4.0.0-alpha.5
+
+- **NEW FEATURE**: Letsencrypt.org integration[*](https://github.com/kataras/iris/issues/220)
+   - example [here](https://github.com/iris-contrib/examples/blob/master/letsencrypt/main.go)
+- **FIX**: (ListenUNIX adds :80 to filename)[https://github.com/kataras/iris/issues/321]
+- **FIX**: (Go-Bindata + ctx.Render)[https://github.com/kataras/iris/issues/315]
+- **FIX** (auto-gzip doesn't really compress data in latest code)[https://github.com/kataras/iris/issues/312]
+
+
+## 4.0.0-alpha.3 -> 4.0.0-alpha.4
+
+
+**The important** , is that the [book](https://kataras.gitbooks.io/iris/content/) is finally updated!
+
+If you're **willing to donate** click [here](DONATIONS.md)!
+
+
+- `iris.Config.Gzip`, enables gzip compression on your Render actions, this includes any type of render, templates and pure/raw content. If you don't want to enable it globaly, you could just use the third parameter on context.Render("myfileOrResponse", structBinding{}, iris.RenderOptions{"gzip": true}). It defaults to false
+
+
+-  **Added** `config.Server.Name` as requested
+
+
+**Fix**
+- https://github.com/kataras/iris/issues/301
+
+**Sessions changes **
+
+- `iris.Config.Sessions.Expires` it was time.Time, changed to time.Duration, which defaults to 0, means unlimited session life duration, if you change it then the correct date is setted on client's cookie but also server destroys the session automatically when the duration passed, this is better approach, see [here](https://github.com/kataras/iris/issues/301)
+
+
+## 4.0.0-alpha.2 -> 4.0.0-alpha.3
+
+**New**
+
+A **Response Engine** gives you the freedom to create/change the render/response writer for
+
+- `context.JSON`
+- `context.JSONP`
+- `context.XML`
+- `context.Text`
+- `context.Markdown`
+- `context.Data`
+- `context.Render("my_custom_type",mystructOrData{}, iris.RenderOptions{"gzip":false,"charset":"UTF-8"})`
+- `context.MarkdownString`
+- `iris.ResponseString(...)`
+
+
+**Fix**
+- https://github.com/kataras/iris/issues/294
+- https://github.com/kataras/iris/issues/303
+
+
+**Small changes**
+
+- `iris.Config.Charset`, before alpha.3 was `iris.Config.Rest.Charset` & `iris.Config.Render.Template.Charset`, but you can override it at runtime by passinth a map `iris.RenderOptions` on the `context.Render` call .
+- `iris.Config.IsDevelopment`, before alpha.1 was `iris.Config.Render.Template.IsDevelopment`
+
+
+**Websockets changes**
+
+No need to import the `github.com/kataras/iris/websocket` to use the `Connection` iteral, the websocket moved inside `kataras/iris` , now all exported variables' names have the prefix of `Websocket`, so the old `websocket.Connection` is now `iris.WebsocketConnection`.
+
+
+Generally, no other changes on the 'frontend API', for response engines examples and how you can register your own to add more features on existing response engines or replace them, look [here](https://github.com/iris-contrib/response).
+
+**BAD SIDE**: E-Book is still pointing on the v3 release, but will be updated soon.
+
+## 4.0.0-alpha.1 -> 4.0.0-alpha.2
+
+**Sessions were re-written **
+
+- Developers can use more than one 'session database', at the same time, to store the sessions
+- Easy to develop a custom session database (only two functions are required (Load & Update)), [learn more](https://github.com/iris-contrib/sessiondb/blob/master/redis/database.go)
+- Session databases are located [here](https://github.com/iris-contrib/sessiondb), contributions are welcome
+- The only frontend deleted 'thing' is the: **config.Sessions.Provider**
+- No need to register a database, the sessions works out-of-the-box
+- No frontend/API changes except the `context.Session().Set/Delete/Clear`, they doesn't return errors anymore, btw they (errors) were always nil :)
+- Examples (master branch) were updated.
+
+```sh
+$ go get github.com/iris-contrib/sessiondb/$DATABASE
+```
+
+```go
+db := $DATABASE.New(configurationHere{})
+iris.UseSessionDB(db)
+```
+
+
+> Note: Book is not updated yet, examples are up-to-date as always.
+
+
+## 3.0.0 -> 4.0.0-alpha.1
+
+[logger](https://github.com/iris-contrib/logger), [rest](https://github.com/iris-contrib/rest) and all [template engines](https://github.com/iris-contrib/template) **moved** to the [iris-contrib](https://github.com/iris-contrib).
+
+- `config.Logger` -> `iris.Logger.Config`
+- `config.Render/config.Render.Rest/config.Render.Template` -> **Removed**
+- `config.Render.Rest` -> `rest.Config`
+- `config.Render.Template` -> `$TEMPLATE_ENGINE.Config` except Directory,Extensions, Assets, AssetNames,
+- `config.Render.Template.Directory` -> `iris.UseTemplate($TEMPLAET_ENGINE.New()).Directory("./templates", ".html")`
+- `config.Render.Template.Assets` -> `iris.UseTemplate($TEMPLAET_ENGINE.New()).Directory("./templates",".html").Binary(assetFn func(name string) ([]byte, error), namesFn func() []string)`
+
+- `context.ExecuteTemplate` -> **Removed**, you can use the `context.Response.BodyWriter()` to get its writer and execute html/template engine manually, but this is useless because we support the best support for template engines among all other (golang) web frameworks
+- **Added** `config.Server.ReadBufferSize & config.Server.WriteBufferSize` which can be passed as configuration fields inside `iris.ListenTo(config.Server{...})`, which does the same job as `iris.Listen`
+- **Added** `iris.UseTemplate($TEMPLAET_ENGINE.New()).Directory("./templates", ".html")` to register a template engine, now iris supports multi template engines, each template engine has its own file extension, no big changes on context.Render except the last parameter:
+- `context.Render(filename string, binding interface{}, layout string{})` -> `context.Render(filename string, binding interface{}, options ...map[string]interface{})  | context.Render("myfile.html", myPage{}, iris.Map{"gzip":true,"layout":"layouts/MyLayout.html"}) |`
+
+E-book and examples are not yet updated, no big changes.
+
+
+## 3.0.0-rc.4 -> 3.0.0-pre.release
+
+- `context.PostFormValue` -> `context.FormValueString`, old func stays until the next revision
+- `context.PostFormMulti` -> `context.FormValues` , old func stays until the next revision
+
+- Added `context.VisitAllCookies(func(key,value string))` to visit all your cookies (because `context.Request.Header.VisitAllCookie` has a bug(I can't fix/pr it because the author is away atm))
+- Added `context.GetFlashes` to get all available flash messages for a particular request
+- Fix flash message removed after the first `GetFlash` call in the same request
+
+**NEW FEATURE**: Built'n support for multi listening servers per iris station, secondary and virtual servers with one-line using the `iris.AddServer` & `iris.Go` to start all servers.
+
+- `iris.SecondaryListen` -> `iris.AddServer`, old func stays until the next revision
+- Added `iris.Servers` with this field you can manage your servers very easy
+- Added `iris.AddServer/iris.ListenTo/iris.Go`, but funcs like `Listen/ListenTLS/ListenUNIX` will stay forever
+- Added `config.Server.Virtual(bool), config.Server.RedirectTo(string) and config.Server.MaxRequestBodySize(int64)`
+- Added `iris.Available (channel bool)`
+- `iris.HTTPServer` -> `iris.Servers.Main()` to get the main server, which is always the last registered server (if more than one used), old field removed
+- `iris.Config.MaxRequestBodySize` -> `config.Server.MaxRequestBodySize`, old field removed
+
+**NEW FEATURE**: Build'n support for your API's end-to-end tests
+
+- Added `tester := iris.Tester(*testing.T)` , look inside: [http_test.go](https://github.com/kataras/iris/blob/master/http_test.go) & [./context_test.go](https://github.com/kataras/iris/blob/master/context_test.go) for `Tester` usage, you can also look inside the [httpexpect's repo](https://github.com/gavv/httpexpect/blob/master/example/iris_test.go) for extended examples with Iris.
+
+
+
+## 3.0.0-rc.3 -> 3.0.0-rc.4
+
+**NEW FEATURE**: **Handlebars** template engine support with all Iris' view engine's functions/helpers support, as requested [here](https://github.com/kataras/iris/issues/239):
+- `iris.Config.Render.Template.Layout = "layouts/layout.html"`
+- `config.NoLayout`
+- **dynamic** optional layout on `context.Render`
+- **Party specific** layout
+- `iris.Config.Render.Template.Handlebars.Helpers["myhelper"] = func()...`
+- `{{ yield }} `
+- `{{ render }}`
+- `{{ url "myroute" myparams}}`
+- `{{ urlpath "myroute" myparams}}`
+
+For a complete example please, click [here](https://github.com/iris-contrib/examples/tree/master/templates_handlebars).
+
+**NEW:** Iris **can listen to more than one server per station** now, as requested [here](https://github.com/kataras/iris/issues/235).
+For example you can have https with SSL/TLS and one more server http which navigates to the secure location.
+Take a look [here](https://github.com/kataras/iris/issues/235#issuecomment-229399829) for an example of this.
+
+
+**FIXES**
+- Fix  `sessions destroy`
+- Fix  `sessions persistence on subdomains` (as RFC2109 commands but you can disable it with `iris.Config.Sessions.DisableSubdomainPersistence = true`)
+
+
+**IMPROVEMENTS**
+- Improvements on `iris run` && `iris create`, note that the underline code for hot-reloading moved to [rizla](https://github.com/kataras/rizla).
+
+
+
+## 3.0.0-rc.2 -> 3.0.0-rc.3
+
+**Breaking changes**
+- Move middleware & their configs to the  [iris-contrib/middleware](https://github.com/iris-contrib/middleware) repository
+- Move all plugins & their configs to the [iris-contrib/plugin](https://github.com/iris-contrib/plugin) repository
+- Move the graceful package to the [iris-contrib/graceful](https://github.com/iris-contrib/graceful) repository
+- Move the mail package & its configs to the [iris-contrib/mail](https://github.com/iris-contrib/mail) repository
+
+Note 1: iris.Config.Mail doesn't not logger exists, use ` mail.Config` from the `iris-contrib/mail`, and ` service:= mail.New(configs); service.Send(....)`.
+
+Note 2: basicauth middleware's context key changed from `context.GetString("auth")` to ` context.GetString("user")`.
+
+Underline changes, libraries used by iris' base code:
+- Move the errors package to the [iris-contrib/errors](https://github.com/iris-contrib/errors) repository
+- Move the tests package to the [iris-contrib/tests](https://github.com/iris-contrib/tests) repository (Yes, you should make PRs now with no fear about breaking the Iris).
+
+**NEW**:
+- OAuth, OAuth2 support via plugin (facebook,gplus,twitter and 25 more), gitbook section [here](https://kataras.gitbooks.io/iris/content/plugin-oauth.html), plugin [example](https://github.com/iris-contrib/examples/blob/master/plugin_oauth_oauth2/main.go), low-level package example [here](https://github.com/iris-contrib/examples/tree/master/oauth_oauth2) (no performance differences, it's just a working version of [goth](https://github.com/markbates/goth) which is converted to work with Iris)
+
+- JSON Web Tokens support via [this middleware](https://github.com/iris-contrib/middleware/tree/master/jwt), book section [here](https://kataras.gitbooks.io/iris/content/jwt.html), as requested [here](https://github.com/kataras/iris/issues/187).
+
+**Fixes**:
+- [Iris run fails when not running from ./](https://github.com/kataras/iris/issues/215)
+- [Fix or disable colors in iris run](https://github.com/kataras/iris/issues/217).
+
+
+Improvements to the `iris run` **command**, as requested [here](https://github.com/kataras/iris/issues/192).
+
+[Book](https://kataras.gitbooks.io/iris/content/) and [examples](https://github.com/iris-contrib/examples) are **updated** also.
+
 ## 3.0.0-rc.1 -> 3.0.0-rc.2
 
 New:

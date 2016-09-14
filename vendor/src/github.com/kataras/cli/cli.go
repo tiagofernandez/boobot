@@ -26,5 +26,5 @@
 // SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 // Package cli
-// Version 0.0.2
+// Version 0.0.3
 package cli

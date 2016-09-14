@@ -9,6 +9,8 @@ import (
 	"mime/multipart"
 	"os"
 	"sync"
+
+	"github.com/valyala/bytebufferpool"
 )
 
 // Request represents HTTP request.
@@ -30,7 +32,7 @@ type Request struct {
 
 	bodyStream io.Reader
 	w          requestBodyWriter
-	body       *ByteBuffer
+	body       *bytebufferpool.ByteBuffer
 
 	multipartForm         *multipart.Form
 	multipartFormBoundary string
@@ -38,6 +40,10 @@ type Request struct {
 	// Group bool members in order to reduce Request object size.
 	parsedURI      bool
 	parsedPostArgs bool
+
+	keepBodyBuffer bool
+
+	isTLS bool
 }
 
 // Response represents HTTP response.
@@ -56,7 +62,7 @@ type Response struct {
 
 	bodyStream io.Reader
 	w          responseBodyWriter
-	body       *ByteBuffer
+	body       *bytebufferpool.ByteBuffer
 
 	// Response.Read() skips reading body if set to true.
 	// Use it for reading HEAD responses.
@@ -65,8 +71,6 @@ type Response struct {
 	// Use it for writing HEAD responses.
 	SkipBody bool
 
-	// This is a hackish field for client implementation, which allows
-	// avoiding body copying.
 	keepBodyBuffer bool
 }
 
@@ -302,19 +306,24 @@ func (req *Request) bodyBytes() []byte {
 	return req.body.B
 }
 
-func (resp *Response) bodyBuffer() *ByteBuffer {
+func (resp *Response) bodyBuffer() *bytebufferpool.ByteBuffer {
 	if resp.body == nil {
-		resp.body = AcquireByteBuffer()
+		resp.body = responseBodyPool.Get()
 	}
 	return resp.body
 }
 
-func (req *Request) bodyBuffer() *ByteBuffer {
+func (req *Request) bodyBuffer() *bytebufferpool.ByteBuffer {
 	if req.body == nil {
-		req.body = AcquireByteBuffer()
+		req.body = requestBodyPool.Get()
 	}
 	return req.body
 }
+
+var (
+	responseBodyPool bytebufferpool.Pool
+	requestBodyPool  bytebufferpool.Pool
+)
 
 // BodyGunzip returns un-gzipped body data.
 //
@@ -430,7 +439,7 @@ func (resp *Response) ResetBody() {
 		if resp.keepBodyBuffer {
 			resp.body.Reset()
 		} else {
-			ReleaseByteBuffer(resp.body)
+			responseBodyPool.Put(resp.body)
 			resp.body = nil
 		}
 	}
@@ -440,6 +449,9 @@ func (resp *Response) ResetBody() {
 //
 // This permits GC to reclaim the large buffer.  If used, must be before
 // ReleaseResponse.
+//
+// Use this method only if you really understand how it works.
+// The majority of workloads don't need this method.
 func (resp *Response) ReleaseBody(size int) {
 	if cap(resp.body.B) > size {
 		resp.closeBodyStream()
@@ -451,11 +463,60 @@ func (resp *Response) ReleaseBody(size int) {
 //
 // This permits GC to reclaim the large buffer.  If used, must be before
 // ReleaseRequest.
+//
+// Use this method only if you really understand how it works.
+// The majority of workloads don't need this method.
 func (req *Request) ReleaseBody(size int) {
 	if cap(req.body.B) > size {
 		req.closeBodyStream()
 		req.body = nil
 	}
+}
+
+// SwapBody swaps response body with the given body and returns
+// the previous response body.
+//
+// It is forbidden to use the body passed to SwapBody after
+// the function returns.
+func (resp *Response) SwapBody(body []byte) []byte {
+	bb := resp.bodyBuffer()
+
+	if resp.bodyStream != nil {
+		bb.Reset()
+		_, err := copyZeroAlloc(bb, resp.bodyStream)
+		resp.closeBodyStream()
+		if err != nil {
+			bb.Reset()
+			bb.SetString(err.Error())
+		}
+	}
+
+	oldBody := bb.B
+	bb.B = body
+	return oldBody
+}
+
+// SwapBody swaps request body with the given body and returns
+// the previous request body.
+//
+// It is forbidden to use the body passed to SwapBody after
+// the function returns.
+func (req *Request) SwapBody(body []byte) []byte {
+	bb := req.bodyBuffer()
+
+	if req.bodyStream != nil {
+		bb.Reset()
+		_, err := copyZeroAlloc(bb, req.bodyStream)
+		req.closeBodyStream()
+		if err != nil {
+			bb.Reset()
+			bb.SetString(err.Error())
+		}
+	}
+
+	oldBody := bb.B
+	bb.B = body
+	return oldBody
 }
 
 // Body returns request body.
@@ -511,8 +572,12 @@ func (req *Request) ResetBody() {
 	req.RemoveMultipartFormFiles()
 	req.closeBodyStream()
 	if req.body != nil {
-		ReleaseByteBuffer(req.body)
-		req.body = nil
+		if req.keepBodyBuffer {
+			req.body.Reset()
+		} else {
+			requestBodyPool.Put(req.body)
+			req.body = nil
+		}
 	}
 }
 
@@ -535,6 +600,7 @@ func (req *Request) copyToSkipBody(dst *Request) {
 
 	req.postArgs.CopyTo(&dst.postArgs)
 	dst.parsedPostArgs = req.parsedPostArgs
+	dst.isTLS = req.isTLS
 
 	// do not copy multipartForm - it will be automatically
 	// re-created on the first call to MultipartForm.
@@ -578,7 +644,7 @@ func (req *Request) parseURI() {
 	}
 	req.parsedURI = true
 
-	req.uri.parseQuick(req.Header.RequestURI(), &req.Header)
+	req.uri.parseQuick(req.Header.RequestURI(), &req.Header, req.isTLS)
 }
 
 // PostArgs returns POST arguments.
@@ -727,6 +793,7 @@ func (req *Request) resetSkipHeader() {
 	req.parsedURI = false
 	req.postArgs.Reset()
 	req.parsedPostArgs = false
+	req.isTLS = false
 }
 
 // RemoveMultipartFormFiles removes multipart/form-data temporary files
@@ -1111,20 +1178,30 @@ func (resp *Response) WriteDeflateLevel(w *bufio.Writer, level int) error {
 }
 
 func (resp *Response) gzipBody(level int) error {
+	if len(resp.Header.peek(strContentEncoding)) > 0 {
+		// It looks like the body is already compressed.
+		// Do not compress it again.
+		return nil
+	}
+
 	// Do not care about memory allocations here, since gzip is slow
 	// and allocates a lot of memory by itself.
 	if resp.bodyStream != nil {
 		bs := resp.bodyStream
 		resp.bodyStream = NewStreamReader(func(sw *bufio.Writer) {
 			zw := acquireGzipWriter(sw, level)
-			copyZeroAlloc(zw, bs)
+			fw := &flushWriter{
+				wf: zw,
+				bw: sw,
+			}
+			copyZeroAlloc(fw, bs)
 			releaseGzipWriter(zw)
 			if bsc, ok := bs.(io.Closer); ok {
 				bsc.Close()
 			}
 		})
 	} else {
-		w := AcquireByteBuffer()
+		w := responseBodyPool.Get()
 		zw := acquireGzipWriter(w, level)
 		_, err := zw.Write(resp.bodyBytes())
 		releaseGzipWriter(zw)
@@ -1133,7 +1210,7 @@ func (resp *Response) gzipBody(level int) error {
 		}
 
 		// Hack: swap resp.body with w.
-		ReleaseByteBuffer(resp.body)
+		responseBodyPool.Put(resp.body)
 		resp.body = w
 	}
 	resp.Header.SetCanonical(strContentEncoding, strGzip)
@@ -1141,20 +1218,30 @@ func (resp *Response) gzipBody(level int) error {
 }
 
 func (resp *Response) deflateBody(level int) error {
+	if len(resp.Header.peek(strContentEncoding)) > 0 {
+		// It looks like the body is already compressed.
+		// Do not compress it again.
+		return nil
+	}
+
 	// Do not care about memory allocations here, since flate is slow
 	// and allocates a lot of memory by itself.
 	if resp.bodyStream != nil {
 		bs := resp.bodyStream
 		resp.bodyStream = NewStreamReader(func(sw *bufio.Writer) {
 			zw := acquireFlateWriter(sw, level)
-			copyZeroAlloc(zw, bs)
+			fw := &flushWriter{
+				wf: zw,
+				bw: sw,
+			}
+			copyZeroAlloc(fw, bs)
 			releaseFlateWriter(zw)
 			if bsc, ok := bs.(io.Closer); ok {
 				bsc.Close()
 			}
 		})
 	} else {
-		w := AcquireByteBuffer()
+		w := responseBodyPool.Get()
 		zw := acquireFlateWriter(w, level)
 		_, err := zw.Write(resp.bodyBytes())
 		releaseFlateWriter(zw)
@@ -1163,11 +1250,35 @@ func (resp *Response) deflateBody(level int) error {
 		}
 
 		// Hack: swap resp.body with w.
-		ReleaseByteBuffer(resp.body)
+		responseBodyPool.Put(resp.body)
 		resp.body = w
 	}
 	resp.Header.SetCanonical(strContentEncoding, strDeflate)
 	return nil
+}
+
+type writeFlusher interface {
+	io.Writer
+	Flush() error
+}
+
+type flushWriter struct {
+	wf writeFlusher
+	bw *bufio.Writer
+}
+
+func (w *flushWriter) Write(p []byte) (int, error) {
+	n, err := w.wf.Write(p)
+	if err != nil {
+		return 0, err
+	}
+	if err = w.wf.Flush(); err != nil {
+		return 0, err
+	}
+	if err = w.bw.Flush(); err != nil {
+		return 0, err
+	}
+	return n, nil
 }
 
 // Write writes response to w.
