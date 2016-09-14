@@ -46,5 +46,8 @@
 	# e.g. adding a package:
 	gb vendor fetch github.com/kataras/iris
 
+	# updating all packages:
+	gb vendor update --all
+
 ### Deploy to production
 	make deploy
