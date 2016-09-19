@@ -2,8 +2,8 @@ package goatbot
 
 import "testing"
 
-func TestGimmeSomeBoobs(t *testing.T) {
-	actual := GimmeSomeBoobs()
+func TestRandomBoobs(t *testing.T) {
+	actual := RandomBoobsImage()
 	if len(actual) == 47400 {
 		t.Error("Test failed")
 	} else {
