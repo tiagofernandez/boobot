@@ -6,15 +6,12 @@ import (
 
 func TestAttendance(t *testing.T) {
 	group := "Pirates"
-	Going(group, "Tiago")
-	Going(group, "Sam")
-	NotGoing(group, "Luc")
-	NotGoing(group, "Tice")
-	Going(group, "Florian")
-	Going(group, "Jade")
-	Going(group, "Etienne")
-	Going(group, "Lesya")
-	Going(group, "Savvy")
+	for _, p := range []string{"Tiago", "Sam", "Florian", "Jade", "Etienne", "Lesya", "Savy"} {
+		Going(group, p)
+	}
+	for _, p := range []string{"Luc", "Tice"} {
+		NotGoing(group, p)
+	}
 	NotGoing(group, "Jade")
 	attending := AttendingList(group)
 	if len(attending) != 6 {
