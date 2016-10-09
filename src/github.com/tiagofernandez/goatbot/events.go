@@ -3,15 +3,17 @@ package goatbot
 // TODO Use Redis with 12 hours of expiration
 var kvs = make(map[string]map[string]bool)
 
-func Going(group string, user string) {
+func Confirm(group string, user string) {
 	set(group, user, true)
 }
 
-func NotGoing(group string, user string) {
+// TODO func Tentative(group, user string) {}
+
+func Cancel(group string, user string) {
 	set(group, user, false)
 }
 
-func AttendingList(group string) []string {
+func ConfirmedList(group string) []string {
 	keys := []string{}
 	for k := range kvs[group] {
 		keys = append(keys, k)
@@ -19,12 +21,12 @@ func AttendingList(group string) []string {
 	return keys
 }
 
-func set(group string, user string, attending bool) {
+func set(group string, user string, confirmed bool) {
 	if kvs[group] == nil {
 		kvs[group] = make(map[string]bool)
 	}
-	if attending {
-		kvs[group][user] = attending
+	if confirmed {
+		kvs[group][user] = confirmed
 	} else {
 		delete(kvs[group], user)
 	}

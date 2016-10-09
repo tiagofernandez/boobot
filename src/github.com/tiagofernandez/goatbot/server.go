@@ -18,9 +18,12 @@ func Start(port string) {
 		}),
 	).Directory("./templates", ".html")
 	iris.Static("/static", "./static", 1)
+	// TODO Use a router, this is getting outta control!
 	iris.Get("/", root)
-	iris.Get("/boobs", boobs)
-	iris.Get("/api/boobs", apiBoobs)
+	iris.Get("/boobs", getBoobsImage)
+	iris.Get("/api/boobs", getBoobsUrl)
+	iris.Get("/api/events/:group", getEventList)
+	iris.Get("/api/events/:group/:action/:user", handleEventAction) // TODO Use POST
 	iris.Listen("0.0.0.0:" + port)
 	log.Println("GoatBot is online!") // TODO Make it visible on the console
 }
@@ -31,13 +34,32 @@ func root(ctx *iris.Context) {
 	)
 }
 
-func boobs(ctx *iris.Context) {
+func getBoobsImage(ctx *iris.Context) {
 	ctx.Data(iris.StatusOK, RandomBoobsImage())
 	ctx.SetContentType("image")
 }
 
-func apiBoobs(ctx *iris.Context) {
+func getBoobsUrl(ctx *iris.Context) {
 	ctx.JSON(iris.StatusOK, iris.Map{
 		"url": RandomBoobsUrl(),
 	})
+}
+
+func getEventList(ctx *iris.Context) {
+	group := ctx.Param("group")
+	ctx.JSON(iris.StatusOK, iris.Map{
+		"confirmed": ConfirmedList(group),
+	})
+}
+
+func handleEventAction(ctx *iris.Context) {
+	group := ctx.Param("group")
+	user := ctx.Param("user")
+	switch ctx.Param("action") {
+	case "confirm":
+		Confirm(group, user)
+	case "cancel":
+		Cancel(group, user)
+	}
+	getEventList(ctx)
 }
